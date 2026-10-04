@@ -68,5 +68,6 @@ const out = buildOutputs(st);
 await writeJson(join(DATA, 'meta.json'), out.meta);
 await writeJson(join(DATA, 'fleet.json'), out.fleet);
 await writeJson(join(DATA, 'orbit.json'), out.orbit);
+await writeJson(join(DATA, 'upcoming.json'), out.upcoming);
 
 console.log(`${result.complete ? 'Complete' : 'Partial: ' + result.stoppedBy}. ${api.calls} API calls. ${st.launches.size} launches, ${out.fleet.length} vehicles.`);

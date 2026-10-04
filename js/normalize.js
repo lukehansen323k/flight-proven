@@ -97,6 +97,7 @@ export function normLaunch(L) {
     id: L.id,
     name: L.name,
     net: L.net,
+    np: get(L, 'net_precision', 'abbrev') || get(L, 'net_precision', 'name') || null,
     st: get(L, 'status', 'abbrev') || get(L, 'status', 'name') || null,
     stn: get(L, 'status', 'name') || null,
     fail: L.failreason || null,

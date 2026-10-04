@@ -150,31 +150,36 @@ function superHeavy({ id, soot, rnd }) {
 // Starship upper stage. Barrel 18 wide; heat-shield tiles on the windward (right) half.
 // ---------------------------------------------------------------------------------------
 function starship({ id, soot, rnd }) {
-  const hull = 'M15 108 V32 Q15 10 24 1.5 Q33 10 33 32 V108 z';
+  // Blunt ogive nose on a 9 m barrel; tiles cover the windward (right) half, nose to skirt.
+  const hull = 'M15 108 V36 C15 21 18.4 9.5 22.4 5.2 Q24 3.6 25.6 5.2 C29.6 9.5 33 21 33 36 V108 z';
   const welds = [];
-  for (let y = 40; y < 106; y += 7) welds.push(`M15 ${y}h18`);
+  for (let y = 44; y < 106; y += 8) welds.push(`M15 ${y}h18`);
+  const flapL = (d) => `<path d="${d}" fill="url(#${id}f)"/><path d="${d}" class="h-flap" fill="none"/>`;
   return `<defs>${STEEL(id + 's')}${BELL(id + 'b')}
-    <pattern id="${id}hex" width="2.4" height="2.08" patternUnits="userSpaceOnUse">
-      <rect width="2.4" height="2.08" style="fill:var(--tile)"/>
-      <path d="M0 1.04 L.6 0 H1.8 L2.4 1.04 L1.8 2.08 H.6 z" style="fill:none;stroke:var(--tile-gap);stroke-width:.22"/>
+    <linearGradient id="${id}f" x1="0" x2="1"><stop offset="0" stop-color="#14171b"/><stop offset=".6" stop-color="#2c3238"/><stop offset="1" stop-color="#1a1d21"/></linearGradient>
+    <pattern id="${id}hex" width="2.6" height="2.25" patternUnits="userSpaceOnUse">
+      <rect width="2.6" height="2.25" style="fill:var(--tile)"/>
+      <path d="M0 1.125 L.65 0 H1.95 L2.6 1.125 L1.95 2.25 H.65 z" style="fill:none;stroke:var(--tile-gap);stroke-width:.2"/>
     </pattern>
     <clipPath id="${id}c"><path d="${hull}"/></clipPath></defs>
+  <!-- aft flaps sit behind the barrel -->
+  ${flapL('M15 83 L10.4 87 Q8.8 88.2 8.8 90.2 V104.6 Q8.8 106.4 10.6 106.4 H15 z')}
+  ${flapL('M33 83 L37.6 87 Q39.2 88.2 39.2 90.2 V104.6 Q39.2 106.4 37.4 106.4 H33 z')}
+  <!-- forward flaps on the nose cone -->
+  ${flapL('M16.9 15.5 L13.4 19.2 Q12.5 20.1 12.5 21.4 V28.6 Q12.5 30 13.8 29.7 L15.6 29.2 z')}
+  ${flapL('M31.1 15.5 L34.6 19.2 Q35.5 20.1 35.5 21.4 V28.6 Q35.5 30 34.2 29.7 L32.4 29.2 z')}
   <path d="${hull}" fill="url(#${id}s)"/>
   <g clip-path="url(#${id}c)">
     <path d="${welds.join('')}" class="h-weld"/>
-    <path d="M25.5 0 Q27 30 26.2 60 Q26.8 90 25.8 112 H40 V0 z" fill="url(#${id}hex)"/>
-    ${sootLayer(id, rnd, soot * 0.6, 15, 30, 18, 78)}
+    <path d="M15 36.5 h18 M15 37.2 h18" class="h-weld"/>
+    <rect x="24.6" y="0" width="10" height="110" fill="url(#${id}hex)"/>
+    <rect x="24.6" y="0" width=".5" height="110" fill="#0c0e10" opacity=".5"/>
+    ${sootLayer(id, rnd, soot * 0.6, 15, 36, 9.6, 72)}
   </g>
   <path d="${hull}" class="h-edge" fill="none"/>
-  <!-- forward flaps -->
-  <path d="M16.2 15 L11.5 21 L11 31 L15.2 30 z" fill="url(#${id}hex)" class="h-flap"/>
-  <path d="M31.8 15 L36.5 21 L37 31 L32.8 30 z" fill="url(#${id}hex)" class="h-flap"/>
-  <!-- aft flaps -->
-  <path d="M15 82 L9 89 L8.4 106 L15 106 z" fill="url(#${id}hex)" class="h-flap"/>
-  <path d="M33 82 L39 89 L39.6 106 L33 106 z" fill="url(#${id}hex)" class="h-flap"/>
-  <!-- engine skirt: two sea-level Raptors and a larger vacuum bell -->
-  <rect x="15.4" y="107.5" width="17.2" height="2.6" fill="#22262b"/>
-  ${bells(id + 'b', [19.5, 24], 110, 3.2, 5)}${bells(id + 'b', [28.6], 110, 5, 7.5)}`;
+  <!-- engine skirt: centre sea-level Raptor between two larger vacuum bells -->
+  <rect x="15.6" y="107.6" width="16.8" height="2.4" rx=".6" fill="#22262b"/>
+  ${bells(id + 'b', [24], 110, 3.4, 5)}${bells(id + 'b', [19.2, 28.8], 110, 5.4, 8)}`;
 }
 
 // ---------------------------------------------------------------------------------------

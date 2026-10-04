@@ -7,7 +7,8 @@ A static website that tracks every SpaceX Falcon 9 and Falcon Heavy booster, eve
 - **Leaders**: top-10 boards for most reflights, oldest boosters (by first flight), fastest turnaround, most satellites carried, Super Heavy flights and Dragon time in space. You can switch between the active fleet and all time.
 - **Archive**: every vehicle ever, including retired, expended and lost ones, with search, family and status filters, and sorting. It renders in batches, so it stays fast at thousands of entries.
 - **Vehicle page** (`#/v/b123`): stats (flights, landings, satellites carried, fastest and average turnaround, career span, pads, crew carried, next mission), a turnaround chart, landing-site and destination breakdowns, and a full flight log. Tap a flight to see its date and time, pad, orbit, payload count, mission notes, recovery notes, docking info, the other boosters on the flight, and the webcast link.
-- **On orbit**: Dragons, Starships and other SpaceX-launched vehicles in space right now, with live mission-elapsed clocks and docked or free-flying status. It also lists launches from the last 21 days and the upcoming manifest with countdowns and booster assignments.
+- **Next launch**: a countdown to the next flight with its assigned booster, the rest of the manifest (coarse "NET Dec 2026" dates shown as such), then every previous launch, newest first. A Falcon / Starship switch filters this tab, the Fleet and the Leaders.
+- **On orbit** (last tab): Dragons, Starships and other SpaceX-launched vehicles in space right now, with live mission-elapsed clocks and docked or free-flying status.
 
 ## Set it up on GitHub Pages (about 5 minutes, free)
 

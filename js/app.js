@@ -39,6 +39,16 @@ function countdown(iso) {
   return `T−${d ? d + 'd ' : ''}${p(h)}:${p(m)}:${p(sec)}`;
 }
 
+// LL2 gives a date precision for upcoming launches; only count down when it is a day or finer.
+const COARSE = /^(MON|QTR|Q\d|H\d|YEAR|FY|WEEK|NEC|TBD)/i;
+const isCoarse = (L) => (L.np ? COARSE.test(L.np) : /-12-3[01]T|T00:00:00Z$/.test(L.net) && Date.parse(L.net) - Date.now() > 45 * DAY);
+function netLabel(L) {
+  const d = new Date(L.net);
+  if (/^(QTR|Q\d)/i.test(L.np || '')) return `NET Q${Math.floor(d.getUTCMonth() / 3) + 1} ${d.getUTCFullYear()}`;
+  if (/^(YEAR|FY|H\d)/i.test(L.np || '')) return `NET ${d.getUTCFullYear()}`;
+  return `NET ${d.toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' })}`;
+}
+
 const KIND = {
   f9: { label: 'Falcon 9 booster', short: 'Falcon 9', group: 'falcon9' },
   'fh-side': { label: 'Falcon Heavy side booster', short: 'FH side', group: 'heavy' },
@@ -81,6 +91,25 @@ function tally(str, max = 80) {
 // ---------------------------------------------------------------------------
 let core = null;
 let ticker = null;
+
+// Falcon / Starship switch, shared by Fleet, Next launch and Leaders (remembered per browser).
+const PROGRAMS = [{ id: 'all', label: 'All' }, { id: 'falcon', label: 'Falcon' }, { id: 'starship', label: 'Starship' }];
+const GROUP_PROGRAM = { falcon9: 'falcon', heavy: 'falcon', dragon: 'falcon', superheavy: 'starship', ship: 'starship' };
+let program = (() => { try { return localStorage.getItem('fp.program') || 'all'; } catch { return 'all'; } })();
+const launchProgram = (L) => ((L.fam || []).includes('Starship') || /starship/i.test(L.rk || '') ? 'starship' : 'falcon');
+const inProgram = (p) => program === 'all' || p === program;
+function progSwitch(options = PROGRAMS) {
+  if (!options.some((o) => o.id === program)) program = options[0].id;
+  return `<div class="seg" role="group" aria-label="Rocket family">${options.map((o) =>
+    `<button type="button" data-prog="${o.id}" class="${program === o.id ? 'on' : ''}" aria-pressed="${program === o.id}">${o.label}</button>`).join('')}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-prog]');
+  if (!b || b.dataset.prog === program) return;
+  program = b.dataset.prog;
+  try { localStorage.setItem('fp.program', program); } catch { /* private mode */ }
+  route();
+});
 const archiveState = { q: '', group: 'all', status: 'all', sort: 'flights', shown: 60 };
 
 function route() {
@@ -95,6 +124,7 @@ function route() {
   if (page === 'archive') return archiveView(app, arg);
   if (page === 'orbit') return orbitView(app);
   if (page === 'leaders') return leadersView(app);
+  if (page === 'launches') return launchesView(app);
   return fleetView(app);
 }
 
@@ -115,6 +145,7 @@ function fleetView(app) {
     <h1>SpaceX fleet</h1>
     <p class="lede">Every active booster, ship and capsule. Select one to see each flight it has flown.</p>
   </section>
+  <div class="viewbar">${progSwitch()}</div>
   <section class="kpis" aria-label="Fleet summary">
     <div class="kpi"><span class="kpi-v">${activeFalcon.length}</span><span class="kpi-l">Active Falcon boosters</span></div>
     <div class="kpi"><span class="kpi-v">${nf.format(core.meta.stats.launches)}</span><span class="kpi-l">SpaceX launches tracked${thisYear ? ` · ${thisYear} in ${year}` : ''}</span></div>
@@ -122,7 +153,7 @@ function fleetView(app) {
     ${leader ? `<a class="kpi kpi-link" href="#/v/${leader.key}"><span class="kpi-v">${esc(leader.sn)} <small>${leader.flights}×</small></span><span class="kpi-l">Fleet leader</span></a>` : ''}
     <a class="kpi kpi-link" href="#/orbit"><span class="kpi-v">${inSpace}</span><span class="kpi-l">Vehicles in space now</span></a>
   </section>
-  ${GROUPS.map((g) => groupSection(g)).join('')}`;
+  ${GROUPS.filter((g) => inProgram(GROUP_PROGRAM[g.id])).map((g) => groupSection(g)).join('')}`;
 }
 
 function groupSection(g) {
@@ -425,60 +456,75 @@ function leadersView(app) {
   const inScope = (v) => scope === 'all' || LIVE.has(v.bucket);
   const falcon = core.fleet.filter((v) => v.type === 'booster' && v.kind !== 'sh' && inScope(v));
   const sh = core.fleet.filter((v) => v.kind === 'sh' && inScope(v));
+  const ships = core.fleet.filter((v) => v.kind === 'ship' && inScope(v));
   const dragons = core.fleet.filter((v) => KIND[v.kind]?.group === 'dragon' && inScope(v));
   const now = Date.now();
   const age = (v) => (now - Date.parse(v.first)) / (365.25 * DAY);
 
   const boards = [
     {
-      id: 'reflights', title: 'Most reflights', sub: 'Falcon boosters by number of flights',
+      id: 'reflights', prog: 'falcon', title: 'Most reflights', sub: 'Falcon boosters by number of flights',
       rows: falcon.filter((v) => v.flights > 0).sort((a, b) => b.flights - a.flights || (a.first || '').localeCompare(b.first || '')),
       value: (v) => v.flights, fmt: (v) => `${v.flights}<small> flights</small>`,
       note: (v) => `${v.flights - 1} reflight${v.flights === 2 ? '' : 's'} · last ${rel(v.last)}`,
     },
     {
-      id: 'oldest', title: 'Oldest boosters', sub: scope === 'active' ? 'Active Falcon boosters by first flight date' : 'Falcon boosters by first flight date',
+      id: 'oldest', prog: 'falcon', title: 'Oldest boosters', sub: scope === 'active' ? 'Active Falcon boosters by first flight date' : 'Falcon boosters by first flight date',
       rows: falcon.filter((v) => v.first).sort((a, b) => a.first.localeCompare(b.first)),
       value: (v) => age(v), fmt: (v) => `${age(v).toFixed(1)}<small> yr</small>`,
       note: (v) => `First flew ${fmtDate(v.first)} · ${v.flights} flights`,
     },
     {
-      id: 'turnaround', title: 'Fastest turnaround', sub: 'Shortest time between two flights of the same booster',
+      id: 'turnaround', prog: 'falcon', title: 'Fastest turnaround', sub: 'Shortest time between two flights of the same booster',
       rows: falcon.filter((v) => v.fastest > 0).sort((a, b) => a.fastest - b.fastest),
       value: (v) => v.fastest, invert: true, fmt: (v) => fmtDays(v.fastest),
       note: (v) => `Average ${fmtDays(v.avgTurn)} over ${v.flights} flights`,
     },
     {
-      id: 'sats', title: 'Most satellites carried', sub: 'Payload counts from published manifests',
+      id: 'sats', prog: 'falcon', title: 'Most satellites carried', sub: 'Payload counts from published manifests',
       rows: falcon.filter((v) => v.sats > 0).sort((a, b) => b.sats - a.sats),
       value: (v) => v.sats, fmt: (v) => `${nf.format(v.sats)}`,
       note: (v) => `${v.satsKnown} of ${v.flights} flights counted`,
     },
     {
-      id: 'superheavy', title: 'Super Heavy flights', sub: 'Starship boosters by number of flights',
+      id: 'superheavy', prog: 'starship', title: 'Super Heavy flights', sub: 'Starship boosters by number of flights',
       rows: sh.filter((v) => v.flights > 0).sort((a, b) => b.flights - a.flights || (a.first || '').localeCompare(b.first || '')),
       value: (v) => v.flights, fmt: (v) => `${v.flights}<small> flight${v.flights === 1 ? '' : 's'}</small>`,
       note: (v) => `${v.landOk}/${v.landAtt} recoveries · last ${rel(v.last)}`,
     },
     {
-      id: 'dragon', title: 'Dragon time in space', sub: 'Capsules by total days in space',
+      id: 'shrecover', prog: 'starship', title: 'Super Heavy recoveries', sub: 'Successful tower catches and soft splashdowns',
+      rows: sh.filter((v) => v.landOk > 0).sort((a, b) => b.landOk - a.landOk || (a.first || '').localeCompare(b.first || '')),
+      value: (v) => v.landOk, fmt: (v) => `${v.landOk}<small>/${v.landAtt}</small>`,
+      note: (v) => `${v.flights} flight${v.flights === 1 ? '' : 's'} · last ${rel(v.last)}`,
+    },
+    {
+      id: 'ships', prog: 'starship', title: 'Starship flights', sub: 'Upper stages and prototypes by number of flights',
+      rows: ships.filter((v) => v.flights > 0).sort((a, b) => b.flights - a.flights || (b.last || '').localeCompare(a.last || '')),
+      value: (v) => v.flights, fmt: (v) => `${v.flights}<small> flight${v.flights === 1 ? '' : 's'}</small>`,
+      note: (v) => `${v.type === 'booster' ? 'Prototype hop' : 'Ship'} · last flew ${fmtDate(v.last)}`,
+    },
+    {
+      id: 'dragon', prog: 'falcon', title: 'Dragon time in space', sub: 'Capsules by total days in space',
       rows: dragons.filter((v) => v.tis > 0 || v.flights > 0).sort((a, b) => (b.tis || 0) - (a.tis || 0) || b.flights - a.flights),
       value: (v) => v.tis || 0, fmt: (v) => (v.tis ? `${nf.format(Math.round(v.tis))}<small> d</small>` : '—'),
       note: (v) => `${v.flights} flight${v.flights === 1 ? '' : 's'}${vName(v) ? ` · ${esc(vName(v))}` : ''}`,
     },
   ];
 
+  const shown = boards.filter((b) => inProgram(b.prog));
   app.innerHTML = `
   <section class="intro">
     <h1>Leaderboards</h1>
     <p class="lede">Record holders across the fleet. Select a vehicle to see every flight behind the number.</p>
   </section>
+  <div class="viewbar">${progSwitch()}
   <div class="chips scope" role="group" aria-label="Which vehicles to rank">
     <button type="button" class="chip${scope === 'active' ? ' on' : ''}" data-scope="active" aria-pressed="${scope === 'active'}">Active fleet</button>
     <button type="button" class="chip${scope === 'all' ? ' on' : ''}" data-scope="all" aria-pressed="${scope === 'all'}">All time</button>
-  </div>
-  <nav class="board-jump" aria-label="Jump to leaderboard">${boards.filter((b) => b.rows.length).map((b) => `<a href="#/leaders" data-jump="${b.id}">${b.title}</a>`).join('')}</nav>
-  <div class="boards">${boards.map(boardHtml).join('')}</div>`;
+  </div></div>
+  <nav class="board-jump" aria-label="Jump to leaderboard">${shown.filter((b) => b.rows.length).map((b) => `<a href="#/leaders" data-jump="${b.id}">${b.title}</a>`).join('')}</nav>
+  <div class="boards">${shown.map(boardHtml).join('')}</div>`;
 
   app.querySelector('.scope').addEventListener('click', (e) => {
     const b = e.target.closest('[data-scope]');
@@ -517,21 +563,142 @@ function boardHtml(b) {
 }
 
 // ---------------------------------------------------------------------------
+// Next launch: the next flight, the rest of the manifest, then launch history
+// ---------------------------------------------------------------------------
+const launchState = { yearsShown: 2, prevShown: 40 };
+
+async function launchesView(app) {
+  const now = Date.now();
+  const fleetByKey = new Map(core.fleet.map((v) => [v.key, v]));
+  // Anything more than 3 h past its NET has flown (or slipped) and waits for the next data build.
+  const upcoming = (core.upcoming || []).filter((L) => Date.parse(L.net) > now - 3 * 3600e3 && inProgram(launchProgram(L)))
+    .sort((a, b) => a.net.localeCompare(b.net));
+  const next = upcoming[0];
+  const rest = upcoming.slice(1);
+
+  app.innerHTML = `
+  <section class="intro"><h1>Next launch</h1>
+    <p class="lede">The next SpaceX flight, the rest of the manifest, then every launch before it.</p></section>
+  <div class="viewbar">${progSwitch()}</div>
+  ${next ? nextHero(next, fleetByKey) : `<p class="empty">No upcoming ${program === 'all' ? '' : PROGRAMS.find((p) => p.id === program).label + ' '}launches are scheduled in the data yet.</p>`}
+  ${rest.length ? `<section class="group"><header class="group-h"><h2>Then</h2><span class="group-sub">${rest.length} more scheduled · dates move often</span></header>
+    <div class="llist" id="then">${rest.map((L, i) => launchRow(L, true, fleetByKey, i >= 10)).join('')}</div>
+    ${rest.length > 10 ? `<div class="more"><button type="button" class="btn" id="thenMore">Show all ${rest.length} scheduled</button></div>` : ''}</section>` : ''}
+  <section class="group"><header class="group-h"><h2>Previous launches</h2><span class="group-sub" id="prevCount">Loading…</span></header>
+    <div class="llist" id="prev"><div class="loading"><div class="loading-bar"></div></div></div>
+    <div class="more" id="prevMoreWrap" hidden><button type="button" class="btn" id="prevMore">Show older launches</button></div>
+  </section>`;
+
+  $('#thenMore')?.addEventListener('click', (e) => { document.querySelectorAll('#then .lrow[hidden]').forEach((r) => (r.hidden = false)); e.target.parentElement.remove(); });
+  const tick = () => document.querySelectorAll('[data-t]').forEach((el) => (el.textContent = countdown(el.dataset.t)));
+  tick();
+  ticker = setInterval(tick, 1000);
+
+  const years = [...core.meta.years].sort().reverse();
+  const drawPrev = async () => {
+    const want = years.slice(0, launchState.yearsShown);
+    const ls = (await loadYears(want)).concat(core.extra || []);
+    if (location.hash !== '#/launches') return;
+    const seen = new Set();
+    const list = ls.filter((L) => (seen.has(L.id) ? false : seen.add(L.id)) && inProgram(launchProgram(L)))
+      .sort((a, b) => b.net.localeCompare(a.net));
+    // Make sure there are enough rows to fill the page before asking for more years.
+    if (list.length < launchState.prevShown && launchState.yearsShown < years.length) { launchState.yearsShown++; return drawPrev(); }
+    const shownList = list.slice(0, launchState.prevShown);
+    $('#prev').innerHTML = shownList.length ? shownList.map((L) => launchRow(L, false, fleetByKey)).join('') : '<p class="empty">No launches yet.</p>';
+    const oldest = shownList[shownList.length - 1];
+    $('#prevCount').textContent = `${nf.format(shownList.length)} most recent${oldest ? ` · back to ${fmtDate(oldest.net)}` : ''}`;
+    $('#prevMoreWrap').hidden = list.length <= launchState.prevShown && launchState.yearsShown >= years.length;
+  };
+  $('#prevMore').addEventListener('click', () => { launchState.prevShown += 60; launchState.yearsShown++; drawPrev(); });
+  drawPrev();
+}
+
+function boosterChip(s, upcoming, fleetByKey) {
+  if (!s.lid) return '<span class="bchip bchip-tbd">Booster TBD</span>';
+  const v = fleetByKey.get(`b${s.lid}`);
+  const n = s.n || (upcoming && v ? v.flights + 1 : null);
+  const land = s.land;
+  const res = upcoming ? '' : !land ? '' : !land.a ? ' <i class="r-E">exp</i>' : land.s === false ? ' <i class="r-X">✕</i>' : land.s ? ' <i class="r-L">✓</i>' : '';
+  return `<a href="#/v/b${s.lid}" class="bchip">${esc(s.sn)}${n ? `<small>·${n}</small>` : ''}${res}</a>`;
+}
+const craftChip = (c) => (c.cid ? `<a href="#/v/c${c.cid}" class="bchip bchip-c">${esc((c.name || c.sn || '').replace(/^(Crew |Cargo )?Dragon\s*/, '') || c.sn)}</a>` : '');
+
+function launchStatus(L) {
+  if (/fail/i.test(L.st || '')) return '<span class="pill st-lost">Failure</span>';
+  if (/partial/i.test(L.st || L.stn || '')) return '<span class="pill st-building">Partial</span>';
+  if (/success/i.test(L.st || L.stn || '')) return '<span class="pill st-active">Success</span>';
+  return `<span class="pill st-unknown">${esc(L.st || 'TBD')}</span>`;
+}
+
+function nextHero(L, fleetByKey) {
+  const boosters = L.stages.map((s) => {
+    const v = s.lid ? fleetByKey.get(`b${s.lid}`) : null;
+    const plan = s.land ? (s.land.a ? `landing on ${esc(s.land.locn || s.land.loc || 'TBD')}` : 'expendable') : '';
+    return `<div class="nh-veh">${v ? `<span class="nh-icon">${icon(v)}</span>` : ''}<div><span class="nh-l">${/strap/i.test(s.t || '') ? 'Side booster' : L.stages.length > 1 ? 'Center core' : 'Booster'}</span>
+      ${s.lid ? `<a href="#/v/b${s.lid}" class="nh-sn">${esc(s.sn)}</a>` : '<span class="nh-sn muted">TBD</span>'}
+      <span class="nh-s">${v ? `Flight ${v.flights + 1}${v.last ? ` · last flew ${rel(v.last)}` : ''}` : ''}${plan ? `${v ? ' · ' : ''}${plan}` : ''}</span></div></div>`;
+  }).join('');
+  const crafts = L.craft.filter((c) => c.cid).map((c) => {
+    const v = fleetByKey.get(`c${c.cid}`);
+    return `<div class="nh-veh">${v ? `<span class="nh-icon">${icon(v)}</span>` : ''}<div><span class="nh-l">Spacecraft</span><a href="#/v/c${c.cid}" class="nh-sn">${esc(c.name || c.sn)}</a>
+      <span class="nh-s">${v && v.flights ? `Flight ${v.flights + 1}` : 'First flight'}${c.dest ? ` · to ${esc(c.dest)}` : ''}</span></div></div>`;
+  }).join('');
+  return `<section class="nexthero">
+    <div class="nh-main">
+      <p class="eyebrow">${esc(L.rk || '')}${L.pad ? ` · ${esc(L.pad)}` : ''}</p>
+      <h2 class="nh-title">${esc(missionTitle(L))}</h2>
+      ${isCoarse(L) ? `<div class="nh-count">${netLabel(L)}</div>` : `<div class="nh-count" data-t="${esc(L.net)}">${countdown(L.net)}</div>`}
+      <p class="nh-when">${fmtDateTime(L.net)} <span class="muted">your time · ${esc(L.st || '')}</span></p>
+      <dl class="f-meta">
+        <div><dt>Orbit</dt><dd>${esc(L.orbn || L.orb || '—')}</dd></div>
+        <div><dt>Launch site</dt><dd>${esc(L.loc || '—')}</dd></div>
+        ${L.mt ? `<div><dt>Mission type</dt><dd>${esc(L.mt)}</dd></div>` : ''}
+        ${L.sats != null ? `<div><dt>Satellites</dt><dd>${L.sats}</dd></div>` : ''}
+      </dl>
+      ${L.desc ? `<p class="nh-desc">${esc(L.desc)}</p>` : ''}
+      ${L.vid ? `<p><a href="${esc(L.vid)}" target="_blank" rel="noopener">Webcast ↗</a></p>` : ''}
+    </div>
+    <div class="nh-side">${boosters || '<p class="muted">Booster not assigned yet.</p>'}${crafts}</div>
+  </section>`;
+}
+
+function launchRow(L, upcoming, fleetByKey, hide = false) {
+  const fail = !upcoming && /fail/i.test(L.st || '');
+  const chips = (L.stages.length ? L.stages.map((s) => boosterChip(s, upcoming, fleetByKey)).join('') : '<span class="bchip bchip-tbd">Booster TBD</span>') + L.craft.map(craftChip).join('');
+  return `<details class="lrow${fail ? ' is-fail' : ''}"${hide ? ' hidden' : ''}>
+    <summary>
+      <span class="m-when">${upcoming ? (isCoarse(L) ? `<b>${netLabel(L)}</b><small>Date not set yet</small>` : `<b data-t="${esc(L.net)}">${countdown(L.net)}</b><small>${fmtDateTime(L.net)}</small>`) : `<b>${fmtDate(L.net, { month: 'short', day: 'numeric', year: 'numeric' })}</b><small>${rel(L.net)}</small>`}</span>
+      <span class="m-name"><b>${esc(missionTitle(L))}</b><small>${esc(L.rk || '')}${L.orb ? ` · ${esc(L.orbn || L.orb)}` : ''}${L.sats ? ` · ${L.sats} satellites` : ''}</small></span>
+      <span class="m-veh">${chips}${upcoming ? '' : launchStatus(L)}</span>
+    </summary>
+    <div class="f-notes">
+      <dl class="f-meta">
+        <div><dt>${upcoming ? 'Target (NET)' : 'Launched'}</dt><dd>${fmtDateTime(L.net)}</dd></div>
+        <div><dt>Pad</dt><dd>${esc(L.pad || '—')}${L.loc ? `<small>${esc(L.loc)}</small>` : ''}</dd></div>
+        <div><dt>Orbit</dt><dd>${esc(L.orbn || L.orb || '—')}</dd></div>
+        ${L.mt ? `<div><dt>Mission type</dt><dd>${esc(L.mt)}</dd></div>` : ''}
+      </dl>
+      ${L.desc ? `<p>${esc(L.desc)}</p>` : ''}
+      ${!upcoming && L.fail ? `<p class="f-fail"><b>Failure:</b> ${esc(L.fail)}</p>` : ''}
+      ${L.stages.filter((s) => s.land && s.land.d).map((s) => `<p><b>${esc(s.sn || 'Booster')}:</b> ${esc(s.land.d)}</p>`).join('')}
+      ${L.vid ? `<p><a href="${esc(L.vid)}" target="_blank" rel="noopener">Webcast ↗</a></p>` : ''}
+    </div>
+  </details>`;
+}
+
+// ---------------------------------------------------------------------------
 // On orbit
 // ---------------------------------------------------------------------------
 function orbitView(app) {
   const o = core.orbit;
   const fleetByKey = new Map(core.fleet.map((v) => [v.key, v]));
   const craft = o.craft.map((c) => ({ ...c, v: fleetByKey.get(c.key) }));
-  const recent = [...(core.extra || []).map((L) => ({ id: L.id, title: missionTitle(L), net: L.net, rk: L.rk, st: L.st, orb: L.orbn || L.orb, sats: L.sats, boosters: L.stages, craft: L.craft })), ...o.recent];
-  const ids = new Set();
-  const recentU = recent.filter((r) => (ids.has(r.id) ? false : ids.add(r.id)));
-
   app.innerHTML = `
   <section class="intro orbit-intro">
     <div>
       <h1>On orbit</h1>
-      <p class="lede">SpaceX-launched vehicles in space right now, what just launched, and what flies next.</p>
+      <p class="lede">SpaceX-launched vehicles in space right now, with live mission clocks. Launch schedules are on the <a href="#/launches">Next launch</a> tab.</p>
     </div>
     ${orbitGraphic(craft)}
   </section>
@@ -539,14 +706,7 @@ function orbitView(app) {
     <header class="group-h"><h2>In space now</h2><span class="group-sub">${craft.length} vehicle${craft.length === 1 ? '' : 's'} · mission clocks run live</span></header>
     ${craft.length ? `<div class="ocards">${craft.map(orbitCard).join('')}</div>` : '<p class="empty">No SpaceX-launched crew vehicles, Dragons or Starships are in space right now.</p>'}
   </section>
-  <section class="group">
-    <header class="group-h"><h2>Recently launched</h2><span class="group-sub">Last 21 days</span></header>
-    ${recentU.length ? `<div class="mlist">${recentU.map((r) => missionRow(r, false)).join('')}</div>` : '<p class="empty">Nothing in the last three weeks.</p>'}
-  </section>
-  <section class="group">
-    <header class="group-h"><h2>Up next</h2><span class="group-sub">Upcoming SpaceX launches</span></header>
-    ${o.upcoming.length ? `<div class="mlist">${o.upcoming.map((r) => missionRow(r, true)).join('')}</div>` : '<p class="empty">No upcoming launches in the data.</p>'}
-  </section>`;
+`;
 
   const tick = () => {
     document.querySelectorAll('[data-met]').forEach((el) => (el.textContent = met(el.dataset.met)));
@@ -576,21 +736,6 @@ function orbitCard(c) {
       </dl>
     </div>
   </a>`;
-}
-
-function missionRow(r, upcoming) {
-  const b = (r.boosters || []).map((s) => {
-    const land = s.land;
-    const res = upcoming ? '' : land ? (land.a ? (land.s === false ? ' ✕' : land.s ? ' ✓' : '') : ' exp.') : '';
-    return s.lid ? `<a href="#/v/b${s.lid}" class="bchip">${esc(s.sn)}${s.n ? `<small>·${s.n}</small>` : ''}${res}</a>` : '';
-  }).join('');
-  const cr = (r.craft || []).map((c) => (c.cid ? `<a href="#/v/c${c.cid}" class="bchip bchip-c">${esc(c.name || c.sn)}</a>` : '')).join('');
-  const fail = !upcoming && /fail/i.test(r.st || '');
-  return `<div class="mrow${fail ? ' is-fail' : ''}">
-    <span class="m-when">${upcoming ? `<b data-t="${esc(r.net)}">${countdown(r.net)}</b><small>${fmtDateTime(r.net)}</small>` : `<b>${fmtDate(r.net, { month: 'short', day: 'numeric' })}</b><small>${rel(r.net)}</small>`}</span>
-    <span class="m-name"><b>${esc(r.title)}</b><small>${esc(r.rk || '')}${r.orb ? ` · ${esc(r.orb)}` : ''}${r.sats ? ` · ${r.sats} satellites` : ''}${fail ? ' · <em>failure</em>' : ''}</small></span>
-    <span class="m-veh">${b}${cr || ''}${!b && !cr ? '<span class="muted">Booster TBD</span>' : ''}</span>
-  </div>`;
 }
 
 function orbitGraphic(craft) {

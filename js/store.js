@@ -27,8 +27,9 @@ async function getJson(path) {
 /** Load meta + fleet + orbit. Returns {meta, fleet, orbit, mode}. */
 export async function loadCore(onStatus = () => {}) {
   try {
-    const [meta, fleet, orbit] = await Promise.all([getJson('data/meta.json'), getJson('data/fleet.json'), getJson('data/orbit.json')]);
-    return { meta, fleet, orbit, mode: 'snapshot' };
+    const [meta, fleet, orbit, upcoming] = await Promise.all([
+      getJson('data/meta.json'), getJson('data/fleet.json'), getJson('data/orbit.json'), getJson('data/upcoming.json').catch(() => null)]);
+    return { meta, fleet, orbit, upcoming: upcoming || [], mode: 'snapshot' };
   } catch {
     return loadLive(onStatus);
   }
@@ -51,7 +52,7 @@ async function loadLive(onStatus) {
   persistLive(st);
   liveLaunches = [...st.launches.values()];
   const out = buildOutputs(st);
-  return { meta: { ...out.meta, note }, fleet: out.fleet, orbit: out.orbit, mode: 'live' };
+  return { meta: { ...out.meta, note }, fleet: out.fleet, orbit: out.orbit, upcoming: out.upcoming, mode: 'live' };
 }
 
 function persistLive(st) {
