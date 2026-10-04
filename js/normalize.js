@@ -48,7 +48,11 @@ export function normLanding(l) {
   };
 }
 
+const PLACEHOLDER = /^(unknown|tbd|placeholder)\b/i;
+export const isPlaceholderSerial = (sn) => !sn || PLACEHOLDER.test(sn);
+
 function normStage(s) {
+  if (get(s, 'launcher', 'is_placeholder') || isPlaceholderSerial(get(s, 'launcher', 'serial_number'))) return { lid: null, sn: null, t: s.type || null, n: null, re: null, ta: null, land: normLanding(s.landing) };
   return {
     lid: get(s, 'launcher', 'id'),
     sn: get(s, 'launcher', 'serial_number'),
@@ -162,6 +166,7 @@ const isSuccess = (L) => /success/i.test(L.st || '') || /success/i.test(L.stn ||
 const isFailure = (L) => /fail/i.test(L.st || '') || /fail/i.test(L.stn || '');
 
 export function classifyBoosterSerial(sn = '') {
+  if (/^SN\d|starhopper|^MK\s?\d/i.test(sn)) return 'ship'; // single-stage Starship prototypes
   if (/^B[01]\d{3}$/i.test(sn)) return 'f9';
   if (/booster|^B\d{1,2}$|^BN/i.test(sn)) return 'sh';
   return 'f9';
@@ -201,7 +206,7 @@ export function deriveFleet({ launchers, spacecraft, launches, upcoming }) {
   };
 
   for (const l of launchers) {
-    if (l.placeholder || !l.sn) continue;
+    if (l.placeholder || isPlaceholderSerial(l.sn)) continue;
     ensure(`b${l.id}`, { type: 'booster', ref: l, sn: l.sn, kind: classifyBoosterSerial(l.sn) });
   }
   for (const c of spacecraft) {
@@ -215,7 +220,7 @@ export function deriveFleet({ launchers, spacecraft, launches, upcoming }) {
     for (const s of L.stages) {
       if (!s.lid) continue;
       const v = ensure(`b${s.lid}`, { type: 'booster', ref: { id: s.lid, sn: s.sn, status: 'unknown' }, sn: s.sn, kind: classifyBoosterSerial(s.sn) });
-      if (ship) v.kind = 'sh';
+      if (ship) v.kind = /prototype/i.test(L.rk || '') ? 'ship' : 'sh';
       else if (heavy) v.roles.add(/core/i.test(s.t || '') ? 'fh-core' : 'fh-side');
       else v.roles.add('f9');
       v.log.push(L.id);
@@ -248,7 +253,7 @@ export function deriveFleet({ launchers, spacecraft, launches, upcoming }) {
     const r = v.ref;
     const flown = v.log.map((id) => launchById.get(id));
     // Booster kind: Falcon Heavy roles take precedence when it never flew as a single-stick F9
-    if (v.type === 'booster' && v.kind !== 'sh') {
+    if (v.type === 'booster' && v.kind !== 'sh' && v.kind !== 'ship') {
       if (v.roles.has('fh-core')) v.kind = 'fh-core';
       else if (v.roles.has('fh-side') && !v.roles.has('f9')) v.kind = 'fh-side';
       else v.kind = 'f9';
