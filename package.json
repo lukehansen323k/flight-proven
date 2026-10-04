@@ -1,0 +1,14 @@
+{
+  "name": "flight-proven",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SpaceX Falcon 9 / Falcon Heavy / Starship / Dragon fleet tracker (static site + data builder)",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "data": "node scripts/build-data.mjs",
+    "serve": "python3 -m http.server 8080",
+    "mock": "node test/mock-ll2.mjs 8765",
+    "data:mock": "LL2_BASE=http://localhost:8765/2.3.0 DATA_DIR=./data node scripts/build-data.mjs"
+  }
+}
